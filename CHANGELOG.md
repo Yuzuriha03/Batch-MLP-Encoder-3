@@ -2,9 +2,18 @@
 
 ## 4.0 — 2026-09-29
 
-This release is based on **Batch MLP Encoder 3.0.6**. Besides the move to .NET 10,
-it fixes several long-standing defects in the bit-depth handling that made parts of
-the "Bit depth" page unusable.
+This release is based on **Batch MLP Encoder 3.0.6**. It brings three kinds of
+changes on top of the move to .NET 10:
+
+1. **Korean file names now work.** 3.0.6 could not encode files whose names (or
+   folders) contained Korean or any other character the system ANSI code page cannot
+   represent — Surcode MLP Encoder was handed a `?` and could not find the file.
+   4.0 encodes them through a temporary ASCII name and restores the original name at
+   the end. See [Korean / Hangul file names](#new--korean-hangul-and-other-non-ansi-file-names).
+2. **The bit-depth options now actually work.** In 3.0.6 one option was disabled,
+   another was a silent no-op or failed outright, and raising the bit depth was
+   impossible. See [the bit-depth fixes](#fixed--the-bit-depth-options-did-not-work-in-306).
+3. **Files that other processes still hold open no longer abort the run.**
 
 ### Platform
 
@@ -22,8 +31,8 @@ the "Bit depth" page unusable.
   code page on .NET Framework (CP936 on a Simplified Chinese system) but is **UTF-8**
   on .NET 10. A new `LegacyTextEncoding` class always uses the real ANSI code page
   (`GetACP`), so the generated `.ssf` files and the eac3to log reading are
-  byte-for-byte identical to 3.0.6, and the Hangul workaround below still triggers
-  for exactly the same file names.
+  byte-for-byte identical to 3.0.6, and the Korean file-name workaround below still
+  triggers for exactly the same file names.
 
 ### Fixed — the bit-depth options did not work in 3.0.6
 
@@ -64,19 +73,25 @@ from 3.0.6.
 - Downconversion is explicitly refused by the upconverter rather than silently
   truncating samples; that is still eac3to's job via `-downN`.
 
-### New — file names Surcode cannot handle
+### New — Korean (Hangul) and other non-ANSI file names
 
-3.0.6 wrote paths into the `.ssf` file using the system ANSI code page. Any character
-that code page cannot represent (Korean, for instance) became `?`, and Surcode then
-reported that it could not find the file.
+**This is the Korean filename fix.** In 3.0.6 the paths written into the `.ssf` file
+used the system ANSI code page, so Korean characters (and any other character that
+code page cannot represent) were replaced by `?`. Surcode MLP Encoder then reported
+that it could not find the file, and the file could not be encoded at all.
 
-- File names that need it are now replaced by a temporary pure-ASCII name
-  (`__surcode_0001`) for the whole eac3to → `.ssf` → Surcode pipeline.
+- File names that need it are detected (`ContainsHangul()` covers the Hangul
+  syllables, Jamo and compatibility blocks; `CanBeAnsiEncoded()` catches everything
+  else the ANSI code page cannot represent) and replaced by a temporary pure-ASCII
+  name (`__surcode_0001`) for the whole eac3to → `.ssf` → Surcode pipeline.
 - After **all** files have been encoded, the generated `.mlp` files are renamed back
-  to their original names. Doing it once at the end, rather than after each file, is
-  far more reliable: Surcode has already exited and released its file handles.
+  to their original Korean names, and the log records the mapping. Doing it once at
+  the end, rather than after each file, is far more reliable: Surcode has already
+  exited and released its file handles. Renames that still fail are retried
+  (see below) instead of being abandoned on the first attempt.
 - If the temporary or output folder itself contains such characters, the folder
-  cannot be renamed safely, so a warning is shown before encoding starts.
+  cannot be renamed safely, so a warning is shown before encoding starts and the user
+  may cancel.
 - A rename failure does **not** mark the file as failed — the audio is correct, only
   the name could not be restored. The count of such files is reported separately so
   that a partial rename is never reported as a complete failure, and a fully
@@ -149,7 +164,9 @@ reported that it could not find the file.
 | "Only convert disallowed bit depths" | Silent no-op; failed outright for 32-bit/unknown sources | Works correctly |
 | Bit depth 16 → 24 | Not possible (eac3to cannot raise it) | Lossless in-place WAV rewrite |
 | 176.4 kHz detection | Typo `176000` | `176400` |
-| Korean / non-ANSI file names | Failed: `?` written into `.ssf` | Temporary ASCII name, renamed back at the end |
+| **Korean file names** | **Could not be encoded at all** (`?` written into `.ssf`, Surcode could not find the file) | **Supported**: temporary ASCII name, MLP renamed back to the Korean name at the end |
+| Korean / non-ANSI folder names | Failed the same way | Warning before encoding starts |
+| `.mlp` rename race | Single `File.Move`, failed if Surcode still held the handle | Retried up to 5 s, all files renamed after the whole batch |
 | File in use | Failed on first attempt | Retries, then reports clearly |
 | About page word wrap | Off (horizontal scrolling) | On |
 | About page language | Chinese/Spanish pages included the English GPL text | Fully localised, licence shown as a link |
