@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    从 .NET Framework 4.6.2 迁移到 .NET 10（WinForms）。
+    旧项目文件保留为 Batch-MLP-Encoder-3.csproj.net462.bak，需要时可直接复制回去用旧 MSBuild 编译。
+
+    迁移要点：
+      1. 仍然编译成 x86：MediaInfo.dll 是 32 位原生 DLL，Surcode MLP Encoder 也是 32 位程序，
+         而且 Surcode 的 UI Automation 代码依赖 32 位进程的窗口行为。
+      2. 不使用 ApplicationConfiguration.Initialize()：它会引入模板默认字体，
+         而三个窗体的布局是按 "Segoe UI, 9pt" + AutoScaleDimensions(8, 20) 设计的。
+         启动初始化仍然显式调用 Application.EnableVisualStyles() 等方法（见 Program.cs）。
+      3. Properties\AssemblyInfo.cs 和各个 *.Designer.cs 都是手工维护的，
+         所以关闭 SDK 的自动生成，避免类型/特性重复定义。
+      4. UIAutomationClient、System.Configuration.ConfigurationManager、System.Resources.Extensions、
+         System.Drawing.Common、System.Text.Encoding.CodePages 等都属于桌面框架，
+         不需要任何 NuGet 包（UIAutomation 那两个的引用写法见下面的 FrameworkReference）。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <RootNamespace>SadPencil.BatchMLPEncoder3</RootNamespace>
+    <AssemblyName>Batch-MLP-Encoder-3</AssemblyName>
+    <StartupObject>SadPencil.BatchMLPEncoder3.Program</StartupObject>
+
+    <ApplicationIcon>burnCD.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- 保留仓库里已有的 Properties\AssemblyInfo.cs -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+
+    <!--
+      MSB3568（“不允许使用重复的资源名，已忽略”）：
+      MainForm.resx 里有 416 个重复的 ">>控件名.Name/Type/Parent/ZOrder" 设计器元数据条目
+      （104 个控件 × 4 项）。已逐条比对，重复项的值完全相同，所以忽略哪一条都不影响生成的资源，
+      旧 MSBuild 也是静默忽略的。这里压掉噪音，免得淹没真正的警告。
+      下次用设计器重存 MainForm 时可以把这些重复项顺手清掉。
+    -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3568</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <!--
+    与旧项目保持一致：Debug/Release、AnyCPU/x86 四种组合最终都产出 32 位程序
+    （旧项目在 Debug|AnyCPU 和 Release|AnyCPU 下也写着 PlatformTarget=x86）。
+  -->
+  <PropertyGroup>
+    <Platforms>AnyCPU;x86</Platforms>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <!--
+    System.Windows.Automation（驱动 Surcode MLP Encoder 的 UI 自动化）需要 UIAutomationClient 等程序集。
+    UseWindowsForms=true 时 SDK 只引入 WindowsForms 这个框架 profile
+    （见 Microsoft.NET.Sdk.WindowsDesktop.props），而在 Microsoft.WindowsDesktop.App.Ref 的
+    FrameworkList.xml 里 UIAutomationClient / UIAutomationTypes / UIAutomationProvider
+    都被标记为 Profile="WPF"，因此不在 WindowsForms profile 的引用集里，编译会报
+    CS0234“命名空间 System.Windows 中不存在 Automation”。
+    解决办法是改用完整的 Microsoft.WindowsDesktop.App 框架引用：运行时仍是同一个共享框架，
+    只是编译期把全部桌面程序集都放进引用集。
+  -->
+  <ItemGroup>
+    <FrameworkReference Remove="Microsoft.WindowsDesktop.App.WindowsForms" />
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 32 位原生 DLL，必须跟程序一起复制到输出目录和发布目录 -->
+    <Content Include="MediaInfo.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      关于页里的许可证声明已按界面语言本地化，所以把 GPL 全文（仓库根目录的 LICENSE）
+      一并放到输出目录和发布目录，保证分发时仍然附带完整的许可证文本。
+    -->
+    <None Include="..\LICENSE" Link="LICENSE">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
