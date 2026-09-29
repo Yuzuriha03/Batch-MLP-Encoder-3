@@ -15,9 +15,15 @@ namespace SadPencil.BatchMLPEncoder3 {
 
     public partial class MainForm : Form {
         public const string Version = "4.0";
+        private readonly BatchCommandLineOptions BatchOptions;
 
         public MainForm() {
             //Thread.CurrentThread.CurrentUICulture =new System.Globalization.CultureInfo("en-US");
+            InitializeComponent();
+        }
+
+        internal MainForm(BatchCommandLineOptions options) {
+            this.BatchOptions = options;
             InitializeComponent();
         }
 
@@ -204,6 +210,44 @@ namespace SadPencil.BatchMLPEncoder3 {
 
             LoadSettings();
 
+            if (this.BatchOptions != null) {
+                if (!String.IsNullOrWhiteSpace(this.BatchOptions.SurcodePath)) {
+                    this.Page1SurcodeTextBox.Text = this.BatchOptions.SurcodePath;
+                }
+                if (!String.IsNullOrWhiteSpace(this.BatchOptions.Eac3toPath)) {
+                    this.Page1eac3toTextbox.Text = this.BatchOptions.Eac3toPath;
+                }
+                this.Page5TempTextbox.Text = this.BatchOptions.TempDirectory;
+                this.Page5SaveTextbox.Text = this.BatchOptions.OutputDirectory;
+                this.Page5AutoCleanCheckbox.Checked = true;
+                this.ApplyBatchAudioOptions();
+                foreach (string file in this.BatchOptions.InputFiles) {
+                    AddFile(file);
+                }
+                this.BeginInvoke(new Action(delegate {
+                    if (this.Page2ListView.Items.Count != this.BatchOptions.InputFiles.Count) {
+                        Environment.ExitCode = 3;
+                        this.Close();
+                        return;
+                    }
+                    this.Page5StartButton.PerformClick();
+                }));
+            }
+
+        }
+
+        private void ApplyBatchAudioOptions() {
+            this.Page3AlwaysResampleRadioButton.Checked = true;
+            this.Page3_44100RadioButton.Checked = this.BatchOptions.SampleRate == 44100;
+            this.Page3_48000RadioButton.Checked = this.BatchOptions.SampleRate == 48000;
+            this.Page3_88200RadioButton.Checked = this.BatchOptions.SampleRate == 88200;
+            this.Page3_96000RadioButton.Checked = this.BatchOptions.SampleRate == 96000;
+            this.Page3_176400RadioButton.Checked = this.BatchOptions.SampleRate == 176400;
+            this.Page3_192000RadioButton.Checked = this.BatchOptions.SampleRate == 192000;
+            this.Page3AlwaysRebitRadioButton.Checked = true;
+            this.Page3_16RadioButton.Checked = this.BatchOptions.Bits == 16;
+            this.Page3_20RadioButton.Checked = this.BatchOptions.Bits == 20;
+            this.Page3_24RadioButton.Checked = this.BatchOptions.Bits == 24;
         }
 
         private void Page1PictureBox_Click(object sender, EventArgs e) {
@@ -378,7 +422,7 @@ namespace SadPencil.BatchMLPEncoder3 {
         }
         //private IntPtr RunSurcode(bool Hidden, bool CloseAtOnce) {
         private IntPtr RunSurcode(bool CloseAtOnce) {
-            //  Int32 WaitTimes = Decimal.ToInt32(Page4WaitTimes.Value) 
+            //  Int32 WaitTimes = Decimal.ToInt32(Page4WaitTimes.Value)
 
             Int32 SmallWaitInterval = Decimal.ToInt32(this.Page4B.Value);
             Int32 SmallWaitTimes = Decimal.ToInt32(this.Page4A.Value / this.Page4B.Value) + 1;
@@ -737,7 +781,7 @@ namespace SadPencil.BatchMLPEncoder3 {
                 }
             }
 
-            //2. 
+            //2.
             this.eac3Processing = this.SurcodeProcessing = this.Processing = true;
             this.MainTabControl.SelectedIndex = 5;
             this.Page6eac3toProgressBar.Value = this.Page6eac3toProgressBar.Minimum;
@@ -758,12 +802,14 @@ namespace SadPencil.BatchMLPEncoder3 {
                 for (int j = 0; j < 6; ++j)
                     this.Files[i, j] = this.Page2ListView.Items[i].SubItems[j].Text;
 
-            //含韩文（或其它无法用 ANSI 表示的字符）的文件名先换成临时 ASCII 名，绕开 Surcode 的兼容性问题。
+            //批处理模式始终使用很短的纯 ASCII 编码名。Surcode 的 .ssf 格式用单字节保存
+            //每个路径字段，最多只能表示 255 个 ANSI 字节；即使 Windows/.NET 支持长路径，
+            //原始长文件名仍可能令 .ssf 无法表示。GUI 模式则只替换不兼容的名称。
             //MLP 生成之后再统一改回原文件名，见 RenameMlpFiles()。
             this.EncodeNames = new string[this.Page2ListView.Items.Count];
             this.NameReplaced = new bool[this.Page2ListView.Items.Count];
             for (int i = 0; i < this.Page2ListView.Items.Count; ++i) {
-                if (NeedSurcodeSafeName(this.Files[i, 0])) {
+                if (this.BatchOptions != null || NeedSurcodeSafeName(this.Files[i, 0])) {
                     this.EncodeNames[i] = this.MakeSurcodeSafeName(i);
                     this.NameReplaced[i] = true;
                     Debug.WriteLine("Surcode safe name: " + this.Files[i, 0] + " -> " + this.EncodeNames[i]);
@@ -1506,6 +1552,16 @@ namespace SadPencil.BatchMLPEncoder3 {
                 else
                     CBin = new byte[] { 0 };
 
+                ValidateSsfFieldLength("左声道 WAV", FLBin);
+                ValidateSsfFieldLength("右声道 WAV", FRBin);
+                ValidateSsfFieldLength("环绕左声道 WAV", SLBin);
+                ValidateSsfFieldLength("环绕右声道 WAV", SRBin);
+                ValidateSsfFieldLength("中置声道 WAV", CBin);
+                ValidateSsfFieldLength("低频声道 WAV", LfeBin);
+                ValidateSsfFieldLength("WAV 临时目录", WavFilePathBin);
+                ValidateSsfFieldLength("MLP 输出目录", MlpFilePathBin);
+                ValidateSsfFieldLength("MLP 输出文件", MlpFileFullNameBin);
+
                 SsfFileWriter.Write(FileHeadBin);
                 SsfFileWriter.Write(Convert.ToByte(FLBin.Length));
                 SsfFileWriter.Write(FLBin);
@@ -1533,6 +1589,14 @@ namespace SadPencil.BatchMLPEncoder3 {
 
         }
 
+        private static void ValidateSsfFieldLength(string FieldName, byte[] Value) {
+            if (Value.Length > Byte.MaxValue) {
+                throw new Exception(FieldName + " 的 ANSI 路径长度为 " +
+                    Value.Length.ToString(CultureInfo.InvariantCulture) +
+                    " 字节，超过 Surcode SSF 格式的 255 字节上限。请使用更短的临时或输出目录。");
+            }
+        }
+
         private void Page6eac3toBackgroundWorker_DoWork(object sender, DoWorkEventArgs e) {
             for (int i = 0; i < this.Page2ListView.Items.Count; ++i) {
                 if (this.Page6eac3toBackgroundWorker.CancellationPending) { e.Cancel = true; return; } //check the cancel button
@@ -1553,7 +1617,7 @@ namespace SadPencil.BatchMLPEncoder3 {
                         }
 
                     }
-                    //2. Rebit 
+                    //2. Rebit
 
                     //Experimental!
 
@@ -1988,6 +2052,11 @@ namespace SadPencil.BatchMLPEncoder3 {
                     for (int i = 0; i < this.Page2ListView.Items.Count; ++i) {
                         this.SurcodeFailed[i] = this.SurcodeFailed[i] || this.eac3toFailed[i];
                         if (this.SurcodeFailed[i]) ++ErrorFileCount;
+                    }
+                    if (this.BatchOptions != null) {
+                        Environment.ExitCode = ErrorFileCount == 0 && this.RenameFailureCount == 0 ? 0 : 1;
+                        this.BeginInvoke(new Action(this.Close));
+                        return;
                     }
                     if (ErrorFileCount == 0) {
                         if (this.RenameFailureCount > 0) {

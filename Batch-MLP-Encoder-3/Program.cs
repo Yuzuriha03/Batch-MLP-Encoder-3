@@ -8,7 +8,7 @@ namespace SadPencil.BatchMLPEncoder3 {
         /// 应用程序的主入口点。
         /// </summary>
         [STAThread]
-        static void Main() {
+        static void Main(string[] args) {
             //GB2312(CP936)、CP949 等传统代码页在 .NET Core 之后不再内置。
             //必须在任何 Encoding.GetEncoding 调用之前注册，否则 LegacyTextEncoding 会失败。
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -22,6 +22,16 @@ namespace SadPencil.BatchMLPEncoder3 {
 
             //.NET Framework 4.6 的注册表检测已经删除：
             //.NET 10 程序在启动前就由宿主完成了运行时检查，改由“缺少桌面运行时”的错误对话框提示。
+            if (args.Length > 0) {
+                if (!BatchCommandLineOptions.TryParse(args, out BatchCommandLineOptions options, out string error)) {
+                    Console.Error.WriteLine(error);
+                    Environment.ExitCode = 2;
+                    return;
+                }
+                Application.Run(new MainForm(options));
+                return;
+            }
+
             if ((new LanguageForm()).ShowDialog() == DialogResult.OK) {
                 Application.Run(new MainForm());
             }
